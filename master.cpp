@@ -10,12 +10,12 @@
 #include <vector>
 #include <memory>
 #include <thread>
-#include <functional>
 
 #include "helpers.h"
 #include "structure.h"
 
 typedef std::shared_ptr<location> loc_ptr;
+using std::thread;
 
 
 // globals for book keeping
@@ -40,11 +40,14 @@ CMD convert_CMD(const std::string& command){
 	else return HELP;
 }
 
-int handleCreate(std::istringstream& iss, const int worker_port){
+int handleCreate(std::istringstream& iss, const int worker_pid, const int worker_port){
 	std::vector<std::string> record(NUM_CREATE_PARAM);
 	size_t index = 0;
 	while(index < NUM_CREATE_PARAM && std::getline(iss, record[index++], ',')){}
 	if(index != NUM_CREATE_PARAM) return 0;
+	std::string message = std::to_string(worker_pid) + "," + std::to_string(worker_port);
+	for(size_t i=0; i<record.size(); ++i) message = message + "," + record[i];
+	paste(message);
 
 	loc_ptr loc = loc_ptr(new location(record[0],
 									   (unsigned int)stoi(record[1]),
@@ -53,6 +56,9 @@ int handleCreate(std::istringstream& iss, const int worker_port){
 	
 	// add the new loc to a container
 	// send a confirmation to worker
+	std::string msg = std::to_string(getpid()) + "," + std::to_string(MASTER_WORKER_PORT)
+											   + ",registered@";
+	send_message("localhost", worker_port, msg.c_str());
 	return 1;
 	
 }
@@ -60,17 +66,18 @@ int handleCreate(std::istringstream& iss, const int worker_port){
 void parse_and_handle(const char* msg){
 	// Parse the data into commands
     std::istringstream iss(msg);
-	int pid, worker_port;
+	int worker_pid, worker_port;
     CMD command;
     std::string token;
 
 	// First get the PID
 	if(std::getline(iss, token, ',')){
 		try{
-			pid = std::stoi(token);
-			if(pid < 0) throw; 
+			worker_pid = std::stoi(token);
+			if(worker_pid < 0) throw; 
 		}catch(...){
 			paste("PID has to be non negative");
+			return;
 		}
     }
 
@@ -81,6 +88,7 @@ void parse_and_handle(const char* msg){
 			if(worker_port < 0 || worker_port == MASTER_WORKER_PORT) throw; 
 		}catch(...){
 			paste("Port number is not valid");
+			return;
 		}
     }
 
@@ -89,7 +97,7 @@ void parse_and_handle(const char* msg){
         command = convert_CMD(token);
 		switch (command){
 		case(CREATE):
-			handleCreate(iss, worker_port);
+			handleCreate(iss, worker_pid, worker_port);
 			break;
 		default:
 			std::cout << "Unkown request\n";
@@ -110,20 +118,20 @@ void handle_connection(int connectionfd) {
 	ssize_t rval;
     bool found_delim = false;
 	do {
-		rval = recv(connectionfd, msg + recvd, MAX_MESSAGE_SIZE - recvd, 0);
+		rval = recv(connectionfd, msg + recvd, MAX_MESSAGE_SIZE+1 - recvd, 0);
 		if (rval == -1) {
 			perror("Error reading stream message");
 			return;
 		}
         // checking witihn the buffer if it ended (check for \0)
         for(size_t i=0; i<rval; ++i){
-            if(msg[recvd+i] == '\0'){
+            if(msg[recvd+i] == '@'){
                 found_delim = true;
                 break;
             }
         }
 		recvd += rval;
-	} while (rval > 0 && recvd < MAX_MESSAGE_SIZE && !found_delim);  // recv() returns 0 when client closes
+	} while (rval > 0 && recvd <= MAX_MESSAGE_SIZE && !found_delim);  // recv() returns 0 when client closes
 
     // Check if we found the deliminator
     if(!found_delim){
@@ -131,11 +139,10 @@ void handle_connection(int connectionfd) {
         close(connectionfd);
         return;
     }
+	msg[recvd-1] = '\0';
 	printf("Client %d says %s\n", connectionfd, msg);
     
 	parse_and_handle(msg);
-
-    
 
 	close(connectionfd);
 
@@ -193,8 +200,8 @@ int run_server(int port, int queue_size) {
 			perror("Error accepting connection");
 			return -1;
 		}
-		std::thread handler(std::bind(handle_connection, connectionfd));
-		handler.detach();  // resources are freed when the thread finishes
+		thread handler(handle_connection, connectionfd);
+		handler.detach();
 	}
 }
 

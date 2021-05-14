@@ -2,4 +2,4 @@
 
 set -Eeuo pipefail
 
-g++ worker.cpp -o worker
+g++ -std=c++11  worker.cpp -o worker
