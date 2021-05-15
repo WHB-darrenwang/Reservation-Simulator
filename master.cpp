@@ -62,11 +62,14 @@ int handleCreate(std::istringstream& iss, const int worker_pid, const int worker
 	
 	// add the new loc to a container
 	LOG.pids.insert(worker_pid);
-	LOG.places[worker_port] = loc_ptr(new location(record[0],
-									   (unsigned int)stoi(record[1]),
-									   (unsigned int)stoi(record[2]),
-									   record[3]));
+	// https://stackoverflow.com/questions/36321153/c-smart-pointers-in-a-vector-container/36321243
+	LOG.places[worker_port] = std::make_shared<location>(  // better, less cache miss
+										record[0],
+										(unsigned int)stoi(record[1]),
+										(unsigned int)stoi(record[2]),
+										record[3]);
 	
+
 	// send a confirmation to worker
 	const std::string msg = std::to_string(getpid()) + "," + std::to_string(MASTER_WORKER_PORT)
 											   + ",registered@";
