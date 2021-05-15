@@ -10,15 +10,26 @@
 #include <vector>
 #include <memory>
 #include <thread>
+#include <chrono>
+#include <unordered_set>
+#include <unordered_map>
 
 #include "helpers.h"
-#include "structure.h"
 
 typedef std::shared_ptr<location> loc_ptr;
-using std::thread;
-
 
 // globals for book keeping
+class bookkeeping{
+public:
+	// worker information
+	std::unordered_set<int> pids;  // keep track of worker pids
+	std::unordered_map<int, loc_ptr> places;  // keep track of worker ports
+
+	bookkeeping(){}
+};
+
+bookkeeping LOG;
+
 // probablly map pid
 
 enum CMD{
@@ -41,26 +52,32 @@ CMD convert_CMD(const std::string& command){
 }
 
 int handleCreate(std::istringstream& iss, const int worker_pid, const int worker_port){
+	// First check if we are trying to create a duplicate
+	// No duplicate worker_pid
+	// No duplicate worker_port
 	std::vector<std::string> record(NUM_CREATE_PARAM);
 	size_t index = 0;
 	while(index < NUM_CREATE_PARAM && std::getline(iss, record[index++], ',')){}
 	if(index != NUM_CREATE_PARAM) return 0;
-	std::string message = std::to_string(worker_pid) + "," + std::to_string(worker_port);
-	for(size_t i=0; i<record.size(); ++i) message = message + "," + record[i];
-	paste(message);
-
-	loc_ptr loc = loc_ptr(new location(record[0],
+	
+	// add the new loc to a container
+	LOG.pids.insert(worker_pid);
+	LOG.places[worker_port] = loc_ptr(new location(record[0],
 									   (unsigned int)stoi(record[1]),
 									   (unsigned int)stoi(record[2]),
 									   record[3]));
 	
-	// add the new loc to a container
 	// send a confirmation to worker
-	std::string msg = std::to_string(getpid()) + "," + std::to_string(MASTER_WORKER_PORT)
+	const std::string msg = std::to_string(getpid()) + "," + std::to_string(MASTER_WORKER_PORT)
 											   + ",registered@";
 	send_message("localhost", worker_port, msg.c_str());
-	return 1;
-	
+	return 1;	
+}
+
+bool validWorkerPort(){
+	// check if this port is not equal to any of master's ports
+	// check that this port is not negative
+	return true;
 }
 
 void parse_and_handle(const char* msg){
@@ -79,18 +96,24 @@ void parse_and_handle(const char* msg){
 			paste("PID has to be non negative");
 			return;
 		}
-    }
+    }else{
+		perror("Invalid request format");
+		return;
+	}
 
 	// Second get the worker port
 	if(std::getline(iss, token, ',')){
 		try{
 			worker_port = std::stoi(token);
-			if(worker_port < 0 || worker_port == MASTER_WORKER_PORT) throw; 
+			if(!validWorkerPort()) throw; 
 		}catch(...){
 			paste("Port number is not valid");
 			return;
 		}
-    }
+    }else{
+		perror("Invalid request format");
+		return;
+	}
 
 	// Third get the command and parse the rest data
     if(std::getline(iss, token, ',')){
@@ -99,114 +122,40 @@ void parse_and_handle(const char* msg){
 		case(CREATE):
 			handleCreate(iss, worker_pid, worker_port);
 			break;
-		default:
-			std::cout << "Unkown request\n";
+		case(HELP):
 			break;
 		}
-    }
+    }else{
+		perror("Invalid request format");
+		return;
+	}
 }
 
-void handle_connection(int connectionfd) {
-	printf("Connection to the Master on %d. Awaiting for commands.\n", connectionfd);
-	
-    // Initialize the buffer that the socket data is reading into
-    char msg[MAX_MESSAGE_SIZE+1];
-	memset(msg, 0, sizeof(msg));
+// Listens to any commands and worker messages on MASTER_WORKER_PORT
+int run_server(const int port, const int queue_size) {
+	const int sockfd = make_tcp_conn(port, queue_size);
+	if(sockfd == -1) return 1;
 
-    // Recieve the data into the buffer
-	size_t recvd = 0;
-	ssize_t rval;
-    bool found_delim = false;
-	do {
-		rval = recv(connectionfd, msg + recvd, MAX_MESSAGE_SIZE+1 - recvd, 0);
-		if (rval == -1) {
-			perror("Error reading stream message");
-			return;
-		}
-        // checking witihn the buffer if it ended (check for \0)
-        for(size_t i=0; i<rval; ++i){
-            if(msg[recvd+i] == '@'){
-                found_delim = true;
-                break;
-            }
-        }
-		recvd += rval;
-	} while (rval > 0 && recvd <= MAX_MESSAGE_SIZE && !found_delim);  // recv() returns 0 when client closes
-
-    // Check if we found the deliminator
-    if(!found_delim){
-		paste("None");
-        close(connectionfd);
-        return;
-    }
-	msg[recvd-1] = '\0';
-	printf("Client %d says %s\n", connectionfd, msg);
-    
-	parse_and_handle(msg);
-
-	close(connectionfd);
-
-	return;
-}
-
-/**
- * Endlessly runs a server that listens for connections and serves
- * them _synchronously_.
- *
- * Parameters:
- *		port: 		The port on which to listen for incoming connections.
- *		queue_size: 	Size of the listen() queue
- * Returns:
- *		-1 on failure, does not return on success.
- */
-int run_server(int port, int queue_size) {
-	// (1) Create socket
-	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd == -1) {
-		perror("Error opening stream socket");
-		return -1;
-	}
-
-	// (2) Set the "reuse port" socket option
-	int yesval = 1;
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yesval, sizeof(yesval)) == -1) {
-		perror("Error setting socket options");
-		return -1;
-	}
-
-	// (3) Create a sockaddr_in struct for the proper port and bind() to it.
-	struct sockaddr_in addr;
-	if (make_server_sockaddr(&addr, port) == -1) {
-		return -1;
-	}
-
-	// (3b) Bind to the port.
-	if (bind(sockfd, (sockaddr *) &addr, sizeof(addr)) == -1) {
-		perror("Error binding stream socket");
-		return -1;
-	}
-
-	// (3c) Detect which port was chosen.
-	port = get_port_number(sockfd);
-	printf("Server listening on port %d...\n", port);
-
-	// (4) Begin listening for incoming connections.
-	listen(sockfd, queue_size);
-
-	// (5) Serve incoming connections one by one forever.
-	while (true) {
-		int connectionfd = accept(sockfd, 0, 0);
+	while(true){
+		const int connectionfd = accept(sockfd, 0, 0);
 		if (connectionfd == -1) {
 			perror("Error accepting connection");
-			return -1;
+			return 1;
 		}
-		thread handler(handle_connection, connectionfd);
+		// When recieved a task, create a thread handler to do it
+		// Continue to accept tasks
+		std::thread handler(recv_handle_connection, connectionfd, parse_and_handle);
 		handler.detach();
 	}
+	return 0;
 }
 
 int main(int argc, const char **argv) {
-	if (argc != 1) return 1;
-	if (run_server(MASTER_WORKER_PORT, 10) == -1) return 1;
+	// ./master
+	if(argc != 1){
+		perror("Usage: ./master");
+		return 1;
+	}
+	if(run_server(MASTER_WORKER_PORT, 10)) return 1;
 	return 0;
 }

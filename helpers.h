@@ -6,6 +6,8 @@
 #include <sys/socket.h>		// getsockname()
 #include <unistd.h>		// stderr
 
+#include "structure.h"
+
 /**
  * Make a server sockaddr given a port.
  * Parameters:
@@ -116,4 +118,72 @@ int send_message(const char *hostname, int port, const char *message) {
 	}
 	close(sockfd);
 	return 0;
+}
+
+// Recieveds message and handles it
+void recv_handle_connection(int connectionfd, void (*handle_func)(const char* msg)) {	
+    // Initialize the buffer that the socket data is reading into
+    char msg[MAX_MESSAGE_SIZE+1];  // +1 to allow space for accepting the delimiter
+	memset(msg, 0, sizeof(msg));
+
+    // Recieve the data into the buffer
+	size_t recvd = 0;
+	ssize_t rval;
+    bool found_delim = false;
+	do{
+		rval = recv(connectionfd, msg + recvd, MAX_MESSAGE_SIZE+1 - recvd, 0);
+		if (rval == -1) {
+			perror("Error reading stream message");
+			return;
+		}
+        // checking witihn the buffer if it ended (check for \0)
+        for(size_t i=0; i<rval; ++i){
+            if(msg[recvd+i] == '@'){
+                found_delim = true;
+                break;
+            }
+        }
+		recvd += rval;
+	}while(rval > 0 && recvd <= MAX_MESSAGE_SIZE && !found_delim);  // recv() returns 0 when client closes
+
+    // Check if we found the deliminator
+    if(!found_delim){
+		perror("No delimiter found");
+        close(connectionfd);
+        return;
+    }
+
+	msg[recvd-1] = '\0';
+    
+	handle_func(msg);
+
+	close(connectionfd);
+
+	return;
+}
+
+// Creates a TCP connection on the port passed in having that queue_size
+int make_tcp_conn(int port, const int queue_size){
+	const int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if(sockfd == -1) {
+		perror("Error opening TCP stream socket");
+		return -1;
+	}
+	int yesval = 1;
+	if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yesval, sizeof(yesval)) == -1) {
+		perror("Error setting TCP socket options");
+		return -1;
+	}
+	struct sockaddr_in addr;
+	if(make_server_sockaddr(&addr, port) == -1) {
+		return -1;
+	}
+	if(bind(sockfd, (sockaddr *) &addr, sizeof(addr)) == -1) {
+		perror("Error binding stream socket");
+		return -1;
+	}
+	port = get_port_number(sockfd);
+	printf("TCP Server listening on port %d...\n", port);
+	listen(sockfd, queue_size);
+	return sockfd;
 }

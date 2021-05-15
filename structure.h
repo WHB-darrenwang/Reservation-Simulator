@@ -4,9 +4,12 @@
 
 std::mutex cout_lock;
 
-static const int MAX_MESSAGE_SIZE = 256;
-static const int MASTER_WORKER_PORT = 8080;
-static const size_t NUM_CREATE_PARAM = 4;
+static const int 	MAX_MESSAGE_SIZE 	= 256;		// Does not include the last @
+static const size_t NUM_CREATE_PARAM 	= 4;
+
+// Ports
+static const int 	MASTER_WORKER_PORT 	= 8080;
+static const int 	HEARTBEAT_PORT 		= 8888;
 
 
 void paste(const std::string& str){
