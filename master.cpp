@@ -41,7 +41,7 @@ enum CMD{
 	HELP,		// Default
 };
 
-// retruns the enum from CMD given a string
+// returns the enum from CMD given a string
 CMD convert_CMD(const std::string& command){
     if	   (command == "CREATE") return CREATE;
     else if(command == "REMOVE") return REMOVE;
@@ -73,7 +73,7 @@ int handleCreate(std::istringstream& iss, const int worker_pid, const int worker
 	// send a confirmation to worker
 	const std::string msg = std::to_string(getpid()) + "," + std::to_string(MASTER_WORKER_PORT)
 											   + ",registered@";
-	send_message("localhost", worker_port, msg.c_str());
+	send_message_tcp("localhost", worker_port, msg.c_str());
 	return 1;	
 }
 
@@ -89,7 +89,6 @@ void parse_and_handle(const char* msg){
 	int worker_pid, worker_port;
     CMD command;
     std::string token;
-
 	// First get the PID
 	if(std::getline(iss, token, ',')){
 		try{
@@ -134,9 +133,49 @@ void parse_and_handle(const char* msg){
 	}
 }
 
+
+void heartbeat_udp(const int port, const int queue_size){
+	// https://www.geeksforgeeks.org/udp-server-client-implementation-c/
+	int sockfd;
+    char buffer[100];
+    struct sockaddr_in servaddr, cliaddr;
+      
+    // Creating socket file descriptor
+    if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+      
+    memset(&servaddr, 0, sizeof(servaddr));
+    memset(&cliaddr, 0, sizeof(cliaddr));
+      
+    // Filling server information
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = INADDR_ANY;
+    servaddr.sin_port = htons(port);
+      
+    // Bind the socket with the server address
+    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0 ){
+        perror("bind failed");
+		return;
+    }
+    int amount;
+	socklen_t len = sizeof(cliaddr);  //len is value/resuslt
+	
+	while(true){
+		amount = recvfrom(sockfd, (char *)buffer, 100, MSG_WAITALL, ( struct sockaddr *) &cliaddr, &len);
+    	buffer[amount] = '\0';
+    	printf("Client : %s\n", buffer);
+	}
+    
+}
+
 // Listens to any commands and worker messages on MASTER_WORKER_PORT
 int run_server(const int port, const int queue_size) {
-	const int sockfd = make_tcp_conn(port, queue_size);
+	std::thread heartbeat_handler(heartbeat_udp, 8083, 10);
+	heartbeat_handler.detach();
+
+	const int sockfd = make_tcp_conn(port, queue_size);	
 	if(sockfd == -1) return 1;
 
 	while(true){

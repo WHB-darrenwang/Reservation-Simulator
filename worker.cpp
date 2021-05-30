@@ -14,9 +14,19 @@
 
 using std::cout;
 
+void run_heartbeat_udp(const int port, const int queue_size){
+	// every 5 seconds send a heatbeat
+	while(true){
+		send_message_udp("localhost", 8083, "0,7777,heartbeat");
+		std::this_thread::sleep_for(std::chrono::milliseconds(5000));  // sleep for 5 seconds
+	}
+}
+
 void parse_and_handle(const char* msg){
 	// if we got a registered, start a UDP for heartbeat
 	paste(msg);
+	std::thread heartbeat_hander(run_heartbeat_udp, 8000, 10);
+	heartbeat_hander.detach();
 }
 
 void request_registration(int argc, const char **argv){
@@ -28,7 +38,7 @@ void request_registration(int argc, const char **argv){
 	oss << getpid() << "," << argv[1] << ",CREATE";
 	for(size_t i=2; i<6; ++i) oss << "," << argv[i];
 	oss << '@';  
-	if(send_message("localhost", MASTER_WORKER_PORT, oss.str().c_str()) == -1){
+	if(send_message_tcp("localhost", MASTER_WORKER_PORT, oss.str().c_str()) == -1){
 		perror("Worker could not send a registration message to master");
 		return;
 	}
