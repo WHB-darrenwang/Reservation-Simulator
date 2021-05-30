@@ -1,12 +1,6 @@
-#include <arpa/inet.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
-#include <iostream>
 #include <sstream>
-#include <string>
 #include <vector>
 #include <memory>
 #include <thread>
@@ -135,39 +129,24 @@ void parse_and_handle(const char* msg){
 
 
 void heartbeat_udp(const int port, const int queue_size){
-	// https://www.geeksforgeeks.org/udp-server-client-implementation-c/
-	int sockfd;
-    char buffer[100];
-    struct sockaddr_in servaddr, cliaddr;
-      
-    // Creating socket file descriptor
-    if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-      
-    memset(&servaddr, 0, sizeof(servaddr));
-    memset(&cliaddr, 0, sizeof(cliaddr));
-      
-    // Filling server information
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = INADDR_ANY;
-    servaddr.sin_port = htons(port);
-      
-    // Bind the socket with the server address
-    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0 ){
-        perror("bind failed");
+	int sockfd = make_udp_conn(port);
+	if(sockfd == -1){
+		perror("Error in making a UDP connection for heartbeat");
 		return;
-    }
-    int amount;
-	socklen_t len = sizeof(cliaddr);  //len is value/resuslt
+	}
+
+    struct sockaddr_in cliaddr;
+	memset(&cliaddr, 0, sizeof(cliaddr));
+    
+	int amount;
+	socklen_t len = sizeof(cliaddr);
 	
 	while(true){
-		amount = recvfrom(sockfd, (char *)buffer, 100, MSG_WAITALL, ( struct sockaddr *) &cliaddr, &len);
+    	char buffer[MAX_MESSAGE_SIZE];
+		amount = recvfrom(sockfd, (char *)buffer, 100, MSG_WAITALL, (struct sockaddr *) &cliaddr, &len);
     	buffer[amount] = '\0';
     	printf("Client : %s\n", buffer);
 	}
-    
 }
 
 // Listens to any commands and worker messages on MASTER_WORKER_PORT

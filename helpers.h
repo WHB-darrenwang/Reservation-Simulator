@@ -1,13 +1,14 @@
-#include <arpa/inet.h>		// htons(), ntohs()
-#include <netdb.h>		// gethostbyname(), struct hostent
-#include <netinet/in.h>		// struct sockaddr_in
-#include <stdio.h>		// perror(), fprintf()
-#include <string.h>		// memcpy()
-#include <sys/socket.h>		// getsockname()
-#include <unistd.h>		// stderr
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "structure.h"
 
+// some methods are from bgreeves
 int make_server_sockaddr(struct sockaddr_in *addr, int port) {
 	addr->sin_family = AF_INET;
 	addr->sin_addr.s_addr = INADDR_ANY;
@@ -61,7 +62,6 @@ int send_message_tcp(const char *hostname, int port, const char *message) {
 }
 
 int send_message_udp(const char *hostname, int port, const char *message) {
-	paste("here");
 	int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if(sockfd < 0){
 		perror("Failure on opening socket for sending UDP message");
@@ -125,7 +125,7 @@ void recv_handle_connection(int connectionfd, void (*handle_func)(const char* ms
 	return;
 }
 
-// Creates a TCP connection on the port passed in having that queue_size
+// Creates a TCP connection listening on the port passed in having that queue_size
 int make_tcp_conn(int port, const int queue_size){
 	const int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if(sockfd == -1) {
@@ -150,3 +150,15 @@ int make_tcp_conn(int port, const int queue_size){
 	listen(sockfd, queue_size);
 	return sockfd;
 }
+
+// make a udp connection listening on port
+int make_udp_conn(const int port){
+	struct sockaddr_in addr;
+	int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) return -1;
+    memset(&addr, 0, sizeof(addr));
+	make_server_sockaddr(&addr, port);
+    if (bind(sockfd, (sockaddr *) &addr, sizeof(addr)) == -1) return -1;
+	return sockfd;
+}
+

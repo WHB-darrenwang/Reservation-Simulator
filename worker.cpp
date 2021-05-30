@@ -1,11 +1,4 @@
-#include <arpa/inet.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <string>
-#include <iostream>
 #include <sstream>
 #include <thread>
 #include <chrono>
@@ -13,6 +6,7 @@
 #include "helpers.h"
 
 using std::cout;
+
 
 void run_heartbeat_udp(const int port, const int queue_size){
 	// every 5 seconds send a heatbeat
